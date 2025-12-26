@@ -1,0 +1,55 @@
+# Backend Python dependencies
+# Multimodal AI System for Suspect Identification
+# 
+# INSTALLATION ORDER (Windows):
+# 1. pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# 2. pip install -r requirements.txt
+# 3. python -m spacy download en_core_web_sm
+
+# Core Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Speech-to-Text (Whisper)
+openai-whisper>=20231117
+soundfile>=0.12.1
+
+# Natural Language Processing
+spacy>=3.7.0
+
+# Deep Learning Core (install separately with CUDA if needed)
+# torch>=2.0.0
+# torchvision>=0.15.0
+transformers>=4.35.0
+
+# Image Generation (Stable Diffusion)
+diffusers>=0.24.0
+accelerate>=0.24.0
+
+# Face Recognition - Using onnxruntime (easier install on Windows)
+onnxruntime>=1.16.0
+
+# Vector Database
+faiss-cpu>=1.7.4
+
+# Image Processing
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# Utilities
+numpy>=1.24.0
+scipy>=1.11.0
+tqdm>=4.66.0
+requests>=2.31.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0
+
+# Logging
+loguru>=0.7.0
