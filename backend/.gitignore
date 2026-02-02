@@ -44,14 +44,17 @@ logs/
 
 # Data (large files)
 data/sample_faces/
-data/embeddings/*.faiss
-data/models/
-data/uploads/
+*.onnx
+*.faiss
+*.pkl
+git_files.txt
+tracked_files.txt
 
 # Keep directory structure
 !data/.gitkeep
-!data/embeddings/.gitkeep
-!data/sample_faces/.gitkeep
+!**/data/embeddings/.gitkeep
+!**/data/sample_faces/.gitkeep
+!**/data/uploads/.gitkeep
 
 # Jupyter
 .ipynb_checkpoints/

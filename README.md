@@ -37,8 +37,9 @@ A modular AI system combining multiple AI technologies to demonstrate identity a
 | NLP | spaCy |
 | Face Generation | Stable Diffusion v1.5 |
 | Deepfake Detection | EfficientNet-B0 |
-| Face Embeddings | InsightFace (ArcFace) |
+| Face Embeddings | DeepFace / ArcFace |
 | Vector Database | FAISS |
+| Face Detection | MTCNN |
 | Frontend | React 18 |
 
 ## Quick Start
@@ -51,11 +52,15 @@ python -m venv venv
 venv\Scripts\activate  # Windows
 # source venv/bin/activate  # Linux/Mac
 
+# Install PyTorch (CUDA supported version recommended)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Install other dependencies
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 
-# Download sample dataset
-python scripts/download_dataset.py
+# Download sample dataset and build database
+python scripts/quick_setup.py
 
 # Start server
 uvicorn app.main:app --reload --port 8000

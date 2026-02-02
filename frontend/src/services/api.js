@@ -66,6 +66,19 @@ export const analyzeFromAudio = async (audioFile, generateSketch = true, topK = 
     return response.data;
 };
 
+// Full Analysis - Text
+export const analyzeFromText = async (description, generateSketch = true, topK = 5) => {
+    const formData = new FormData();
+    formData.append('description', description);
+    formData.append('generate_sketch', generateSketch);
+    formData.append('top_k', topK);
+
+    const response = await api.post('/analyze/text', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return response.data;
+};
+
 // Full Analysis - Image
 export const analyzeFromImage = async (imageFile, topK = 5) => {
     const formData = new FormData();
