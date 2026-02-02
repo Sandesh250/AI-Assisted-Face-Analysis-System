@@ -1,15 +1,17 @@
 import { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { FaMicrophone, FaUpload, FaPlay, FaSpinner, FaUser, FaSearch, FaStop, FaCircle } from 'react-icons/fa';
-import { analyzeFromAudio } from '../services/api';
+import { analyzeFromAudio, analyzeFromText } from '../services/api';
 
 function AudioAnalysis() {
+    const [inputMode, setInputMode] = useState('audio'); // 'audio' or 'text'
+    const [textDescription, setTextDescription] = useState('');
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
     const [step, setStep] = useState('');
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
-    const [generateSketch, setGenerateSketch] = useState(false); // Default OFF for faster testing
+    const [generateSketch, setGenerateSketch] = useState(true); // Default ON for sketch generation
 
     // Recording state
     const [isRecording, setIsRecording] = useState(false);
@@ -92,15 +94,28 @@ function AudioAnalysis() {
     };
 
     const runAnalysis = async () => {
-        if (!file) return;
+        if (inputMode === 'audio' && !file) {
+            setError('Please record or upload an audio file');
+            return;
+        }
+        if (inputMode === 'text' && !textDescription.trim()) {
+            setError('Please enter a description');
+            return;
+        }
 
         setLoading(true);
         setError(null);
 
         try {
-            setStep(generateSketch ? 'Transcribing & generating sketch (may take several minutes first time)...' : 'Transcribing audio...');
-            const result = await analyzeFromAudio(file, generateSketch, 5);
-            setResults(result);
+            if (inputMode === 'audio') {
+                setStep(generateSketch ? 'Transcribing & generating sketch (may take several minutes first time)...' : 'Transcribing audio...');
+                const result = await analyzeFromAudio(file, generateSketch, 5);
+                setResults(result);
+            } else {
+                setStep(generateSketch ? 'Generating sketch from description...' : 'Processing description...');
+                const result = await analyzeFromText(textDescription, generateSketch, 5);
+                setResults(result);
+            }
             setStep('');
         } catch (err) {
             setError(err.response?.data?.detail || err.message || 'Analysis failed');
@@ -129,100 +144,175 @@ function AudioAnalysis() {
                 <div className="analysis-panel">
                     <div className="panel-header">
                         <div className="panel-icon"><FaMicrophone /></div>
-                        <h3 className="panel-title">Record or Upload Audio</h3>
+                        <h3 className="panel-title">Input Description</h3>
                     </div>
 
-                    {/* Recording Button */}
-                    <div style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
-                        {!isRecording ? (
-                            <button
-                                className="btn btn-lg"
-                                onClick={startRecording}
+                    {/* Input Mode Toggle */}
+                    <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                        <button
+                            className={`btn ${inputMode === 'audio' ? 'btn-primary' : ''}`}
+                            onClick={() => { setInputMode('audio'); setTextDescription(''); setResults(null); }}
+                            disabled={loading || isRecording}
+                            style={{
+                                padding: '0.75rem 1.5rem',
+                                borderRadius: '8px',
+                                background: inputMode === 'audio' ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : 'var(--gray-700)',
+                                color: 'white',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '1rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                            }}
+                        >
+                            <FaMicrophone /> Audio Input
+                        </button>
+                        <button
+                            className={`btn ${inputMode === 'text' ? 'btn-primary' : ''}`}
+                            onClick={() => { setInputMode('text'); setFile(null); setAudioURL(null); setResults(null); }}
+                            disabled={loading || isRecording}
+                            style={{
+                                padding: '0.75rem 1.5rem',
+                                borderRadius: '8px',
+                                background: inputMode === 'text' ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : 'var(--gray-700)',
+                                color: 'white',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '1rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                            }}
+                        >
+                            <FaUser /> Text Input
+                        </button>
+                    </div>
+
+                    {inputMode === 'text' ? (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <textarea
+                                value={textDescription}
+                                onChange={(e) => setTextDescription(e.target.value)}
+                                placeholder="Describe the person's appearance... (e.g., 'Male, 30-35 years old, short black hair, beard, brown eyes, oval face')"
                                 disabled={loading}
                                 style={{
-                                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                                    color: 'white',
-                                    padding: '1rem 2rem',
-                                    borderRadius: '50px',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '0.75rem',
-                                    fontSize: '1.1rem',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)'
+                                    width: '100%',
+                                    minHeight: '150px',
+                                    padding: '1rem',
+                                    borderRadius: '8px',
+                                    background: 'var(--gray-800)',
+                                    border: '2px solid var(--gray-700)',
+                                    color: 'var(--gray-100)',
+                                    fontSize: '1rem',
+                                    resize: 'vertical',
+                                    fontFamily: 'inherit'
                                 }}
-                            >
-                                <FaCircle style={{ fontSize: '0.8rem' }} /> Start Recording
-                            </button>
-                        ) : (
-                            <div>
-                                <button
-                                    className="btn btn-lg"
-                                    onClick={stopRecording}
-                                    style={{
-                                        background: 'linear-gradient(135deg, #6b7280, #4b5563)',
-                                        color: 'white',
-                                        padding: '1rem 2rem',
-                                        borderRadius: '50px',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '0.75rem',
-                                        fontSize: '1.1rem',
-                                        border: 'none',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    <FaStop /> Stop Recording
-                                </button>
-                                <div style={{
-                                    marginTop: '1rem',
-                                    color: '#ef4444',
-                                    fontSize: '1.5rem',
-                                    fontFamily: 'monospace',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '0.5rem'
-                                }}>
-                                    <FaCircle className="animate-pulse" style={{ fontSize: '0.75rem' }} />
-                                    {formatTime(recordingTime)}
-                                </div>
+                            />
+                            <div style={{ marginTop: '0.5rem', color: 'var(--gray-500)', fontSize: '0.875rem' }}>
+                                💡 Tip: Include details like age, gender, hair color/style, facial features, etc.
                             </div>
-                        )}
-                    </div>
-
-                    <div style={{ textAlign: 'center', color: 'var(--gray-500)', marginBottom: '1rem' }}>
-                        — OR —
-                    </div>
-
-                    {/* File Upload Dropzone */}
-                    <div
-                        {...getRootProps()}
-                        className={`dropzone ${isDragActive ? 'active' : ''}`}
-                        style={{ minHeight: '120px' }}
-                    >
-                        <input {...getInputProps()} />
-                        <div className="dropzone-icon" style={{ fontSize: '1.5rem' }}>📁</div>
-                        {file ? (
-                            <div className="dropzone-text">
-                                <strong>{file.name}</strong>
-                                <p>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                            </div>
-                        ) : (
-                            <div className="dropzone-text">
-                                <strong>Drop audio file here</strong>
-                                <p>or click to browse</p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Audio Preview */}
-                    {audioURL && (
-                        <div style={{ marginTop: '1rem' }}>
-                            <audio controls src={audioURL} style={{ width: '100%' }} />
                         </div>
+                    ) : (
+                        <>
+
+                            {/* Recording Button */}
+                            <div style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
+                                {!isRecording ? (
+                                    <button
+                                        className="btn btn-lg"
+                                        onClick={startRecording}
+                                        disabled={loading}
+                                        style={{
+                                            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                                            color: 'white',
+                                            padding: '1rem 2rem',
+                                            borderRadius: '50px',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.75rem',
+                                            fontSize: '1.1rem',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)'
+                                        }}
+                                    >
+                                        <FaCircle style={{ fontSize: '0.8rem' }} /> Start Recording
+                                    </button>
+                                ) : (
+                                    <div>
+                                        <button
+                                            className="btn btn-lg"
+                                            onClick={stopRecording}
+                                            style={{
+                                                background: 'linear-gradient(135deg, #6b7280, #4b5563)',
+                                                color: 'white',
+                                                padding: '1rem 2rem',
+                                                borderRadius: '50px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.75rem',
+                                                fontSize: '1.1rem',
+                                                border: 'none',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <FaStop /> Stop Recording
+                                        </button>
+                                        <div style={{
+                                            marginTop: '1rem',
+                                            color: '#ef4444',
+                                            fontSize: '1.5rem',
+                                            fontFamily: 'monospace',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '0.5rem'
+                                        }}>
+                                            <FaCircle className="animate-pulse" style={{ fontSize: '0.75rem' }} />
+                                            {formatTime(recordingTime)}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ textAlign: 'center', color: 'var(--gray-500)', marginBottom: '1rem' }}>
+                                — OR —
+                            </div>
+
+                            {/* File Upload Dropzone */}
+                            <div
+                                {...getRootProps()}
+                                className={`dropzone ${isDragActive ? 'active' : ''}`}
+                                style={{ minHeight: '120px' }}
+                            >
+                                <input {...getInputProps()} />
+                                <div className="dropzone-icon" style={{ fontSize: '1.5rem' }}>📁</div>
+                                {file ? (
+                                    <div className="dropzone-text">
+                                        <strong>{file.name}</strong>
+                                        <p>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                    </div>
+                                ) : (
+                                    <div className="dropzone-text">
+                                        <strong>Drop audio file here</strong>
+                                        <p>or click to browse</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Audio Preview */}
+                            {audioURL && (
+                                <div style={{ marginTop: '1rem' }}>
+                                    <audio controls src={audioURL} style={{ width: '100%' }} />
+                                </div>
+                            )}
+                        </>
+
                     )}
+
+
+
 
                     {/* Options */}
                     <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
@@ -246,7 +336,7 @@ function AudioAnalysis() {
                     <button
                         className="btn btn-primary btn-lg w-full mt-lg"
                         onClick={runAnalysis}
-                        disabled={!file || loading || isRecording}
+                        disabled={(inputMode === 'audio' && !file) || (inputMode === 'text' && !textDescription.trim()) || loading || isRecording}
                     >
                         {loading ? (
                             <>

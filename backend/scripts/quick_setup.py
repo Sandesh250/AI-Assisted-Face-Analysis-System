@@ -20,7 +20,7 @@ def create_synthetic_faces(data_dir: Path, num_faces: int = 20) -> int:
     # Check if there are already real images
     existing = list(sample_faces_dir.glob("*.jpg")) + list(sample_faces_dir.glob("*.png")) + list(sample_faces_dir.glob("*.jpeg"))
     if len(existing) > 0:
-        print(f"📸 Found {len(existing)} existing images in {sample_faces_dir}")
+        print(f"[IMG] Found {len(existing)} existing images in {sample_faces_dir}")
         print("   Skipping synthetic face creation - will use existing images")
         return len(existing)
     
@@ -33,7 +33,7 @@ def create_synthetic_faces(data_dir: Path, num_faces: int = 20) -> int:
         "Daniel Hall", "Stephanie Allen", "Matthew Young", "Ashley King"
     ]
     
-    print(f"🎨 No existing images found. Creating {num_faces} synthetic sample faces...")
+    print(f"[GEN] No existing images found. Creating {num_faces} synthetic sample faces...")
     
     for i in range(num_faces):
         img = Image.new('RGB', (200, 200))
@@ -56,7 +56,7 @@ def create_synthetic_faces(data_dir: Path, num_faces: int = 20) -> int:
         filename = f"{name.replace(' ', '_')}_{i:04d}.jpg"
         img.save(sample_faces_dir / filename, quality=95)
     
-    print(f"✅ Created {num_faces} synthetic faces")
+    print(f"[OK] Created {num_faces} synthetic faces")
     return num_faces
 
 
@@ -74,10 +74,10 @@ def build_face_index(data_dir: Path) -> int:
     images = sorted(images)
     
     if not images:
-        print("❌ No images found in sample_faces directory!")
+        print("[ERR] No images found in sample_faces directory!")
         return 0
     
-    print(f"\n🔧 Building face embedding index for {len(images)} images...")
+    print(f"\n[BUILD] Building face embedding index for {len(images)} images...")
     
     async def add_faces():
         count = 0
@@ -118,10 +118,10 @@ def clear_old_index(data_dir: Path) -> None:
     
     if faiss_file.exists():
         faiss_file.unlink()
-        print("🗑️  Removed old FAISS index")
+        print("[X] Removed old FAISS index")
     if json_file.exists():
         json_file.unlink()
-        print("🗑️  Removed old metadata file")
+        print("[X] Removed old metadata file")
 
 
 def main():
@@ -144,7 +144,7 @@ def main():
     count = build_face_index(data_dir)
     
     print("\n" + "=" * 60)
-    print(f"✅ Done! Face database now has {count} faces indexed.")
+    print(f"[OK] Done! Face database now has {count} faces indexed.")
     print("   Restart the backend and try Face Search!")
     print("=" * 60)
 

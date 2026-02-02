@@ -46,6 +46,13 @@ data/embeddings/*
 !data/embeddings/.gitkeep
 data/models/*
 !data/models/.gitkeep
+data/sample_faces/*
+!data/sample_faces/.gitkeep
+*.onnx
+*.faiss
+*.pkl
+git_files.txt
+tracked_files.txt
 
 # Environment
 .env

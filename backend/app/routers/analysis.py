@@ -81,7 +81,7 @@ async def analyze_from_audio(
             image_base64, prompt_used, gen_time = await face_generator_service.generate_face(
                 description=text,
                 attributes=attributes,
-                style="portrait"
+                style="sketch"
             )
             generated_sketch = GenerateSketchResponse(
                 image_base64=image_base64,
@@ -123,6 +123,87 @@ async def analyze_from_audio(
         
     except Exception as e:
         logger.error(f"Full analysis failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analysis failed: {str(e)}"
+        )
+
+
+@router.post(
+    "/analyze/text",
+    response_model=FullAnalysisResponse,
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    summary="Full analysis from text description",
+    description="Complete pipeline: Text → Attributes → Face Generation → Matching"
+)
+async def analyze_from_text(
+    description: str = Form(..., description="Text description of the face"),
+    generate_sketch: bool = Form(default=True, description="Generate face sketch"),
+    top_k: int = Form(default=5, ge=1, le=20, description="Number of matches")
+):
+    """
+    Run the complete analysis pipeline from text input.
+    
+    1. Extract facial attributes from text
+    2. Generate face sketch from description
+    3. Search for similar faces in database
+    
+    ⚠️ **Educational Project**: Results are AI-generated suggestions only.
+    """
+    start_time = time.time()
+    
+    try:
+        # Step 1: Extract attributes
+        logger.info("Step 1: Extracting facial attributes from text...")
+        attributes, _, _ = nlp_service.process_description(description)
+        
+        # Step 2: Generate sketch (if requested)
+        generated_sketch = None
+        face_matches = None
+        
+        if generate_sketch:
+            logger.info("Step 2: Generating face sketch...")
+            image_base64, prompt_used, gen_time = await face_generator_service.generate_face(
+                description=description,
+                attributes=attributes,
+                style="sketch"
+            )
+            generated_sketch = GenerateSketchResponse(
+                image_base64=image_base64,
+                prompt_used=prompt_used,
+                generation_time_seconds=gen_time
+            )
+            
+            # Use generated sketch to search database
+            sketch_image_data = base64.b64decode(image_base64)
+            logger.info("Step 3: Matching generated sketch against database...")
+            matches, search_time = await face_embedding_service.search(sketch_image_data, top_k)
+            face_matches = FaceMatchingResponse(
+                matches=matches,
+                query_embedding_generated=True,
+                total_database_faces=face_embedding_service.get_database_size(),
+                search_time_seconds=search_time
+            )
+        
+        total_time = time.time() - start_time
+        logger.info(f"Text analysis complete in {total_time:.2f}s")
+        
+        return FullAnalysisResponse(
+            transcription=None,  # No transcription for text input
+            attributes=attributes,
+            generated_sketch=generated_sketch,
+            deepfake_verification=None,
+            face_matches=face_matches,
+            processing_time_seconds=round(total_time, 2),
+            disclaimer=(
+                "⚠️ This system provides AI-assisted analysis and is NOT definitive "
+                "identification. All results are probabilistic and should be verified "
+                "by qualified personnel. FOR EDUCATIONAL PURPOSES ONLY."
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Text analysis failed: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Analysis failed: {str(e)}"

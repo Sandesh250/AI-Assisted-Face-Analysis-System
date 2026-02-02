@@ -1,16 +1,18 @@
 """
-Face Embedding and Matching Service using InsightFace and FAISS.
+Face Embedding and Matching Service using FaceNet-PyTorch and FAISS.
 Generates face embeddings and performs similarity search.
 """
 import io
 import json
 import time
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
 from PIL import Image
 import faiss
 from loguru import logger
+import torch
+import cv2
 
 from app.config import settings
 from app.models.schemas import FaceMatch
@@ -21,10 +23,10 @@ class FaceEmbeddingService:
     
     _instance = None
     _initialized = False
-    _face_analyzer = None
+    _model_loaded = False
     _faiss_index = None
     _face_database = {}  # Maps index ID to face info
-    _embedding_dim = 512  # ArcFace embedding dimension
+    _embedding_dim = 512  # FaceNet InceptionResnetV1 embedding dimension
     
     def __new__(cls):
         """Singleton pattern."""
@@ -40,30 +42,49 @@ class FaceEmbeddingService:
             FaceEmbeddingService._initialized = True
     
     def _load_model(self) -> None:
-        """Load InsightFace model for face analysis."""
-        logger.info("Loading face analysis model...")
+        """Load DeepFace ArcFace model and MTCNN for face detection."""
+        logger.info("Loading DeepFace ArcFace model...")
         
         try:
-            from insightface.app import FaceAnalysis
+            from facenet_pytorch import MTCNN
+            from deepface import DeepFace
             
-            # Initialize face analyzer
-            self._face_analyzer = FaceAnalysis(
-                name='buffalo_sc',  # Smaller, faster model
-                providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+            # Disable TF logs
+            import os
+            os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3" 
+            
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            logger.info(f"Using device: {self.device}")
+            
+            # Face detection (MTCNN)
+            self.mtcnn = MTCNN(
+                keep_all=False, 
+                select_largest=True, 
+                device=self.device,
+                post_process=True  # Returns normalized tensor
             )
-            self._face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
             
-            logger.info("✅ InsightFace model loaded successfully")
+            # Load DeepFace model (warmup)
+            # We don't need to hold the model instance as DeepFace manages it singleton-style
+            # But checking if it loads is good.
+            try:
+                # Mock call to load model into memory
+                dummy_img = np.zeros((112, 112, 3), dtype=np.uint8)
+                DeepFace.build_model("ArcFace")
+                logger.info("✅ DeepFace ArcFace model loaded successfully")
+                self._deepface_ready = True
+            except Exception as e:
+                logger.error(f"DeepFace ArcFace load failed: {e}")
+                raise e
             
-        except ImportError:
-            logger.warning(
-                "⚠️ InsightFace not installed. Face embeddings will use random vectors for demo. "
-                "To enable real face matching, install: pip install insightface"
-            )
-            self._face_analyzer = None
+            self._model_loaded = True
+            
+        except ImportError as e:
+            logger.error(f"Required libraries not installed: {e}")
+            self._model_loaded = False
         except Exception as e:
-            logger.warning(f"InsightFace load failed: {e}. Using fallback mode.")
-            self._face_analyzer = None
+            logger.error(f"Model load failed: {e}")
+            self._model_loaded = False
     
     def _initialize_faiss(self) -> None:
         """Initialize or load FAISS index."""
@@ -80,52 +101,60 @@ class FaceEmbeddingService:
             logger.info(f"Loaded {self._faiss_index.ntotal} face embeddings")
         else:
             logger.info("Creating new FAISS index")
-            # Use L2 distance for cosine similarity (with normalized vectors)
-            self._faiss_index = faiss.IndexFlatIP(self._embedding_dim)  # Inner product
+            # Use Inner Product (Cosine Similarity) with normalized vectors
+            self._faiss_index = faiss.IndexFlatIP(self._embedding_dim)
             self._face_database = {}
         
         logger.info("✅ FAISS index initialized")
     
-    def _preprocess_image(self, image_data: bytes) -> np.ndarray:
-        """Convert image bytes to numpy array for InsightFace."""
-        image = Image.open(io.BytesIO(image_data)).convert("RGB")
-        return np.array(image)
-    
     async def get_embedding(self, image_data: bytes) -> Optional[np.ndarray]:
         """
         Generate face embedding from image.
-        
-        Args:
-            image_data: Raw image bytes
-            
-        Returns:
-            Face embedding vector (512-dim) or None if no face detected
         """
-        if self._face_analyzer is None:
-            logger.warning("Face analyzer not loaded, returning random embedding for demo")
+        if not self._model_loaded:
+            logger.warning("Model not loaded, returning random embedding")
             return np.random.randn(self._embedding_dim).astype(np.float32)
         
         try:
-            img_array = self._preprocess_image(image_data)
+            # Convert bytes to PIL Image
+            image = Image.open(io.BytesIO(image_data)).convert('RGB')
             
-            # Detect faces and get embeddings
-            faces = self._face_analyzer.get(img_array)
+            # Detect and crop face (returns Tensor [3, 160, 160] or None)
+            # MTCNN automatically crops and normalizes
+            face_tensor = self.mtcnn(image)
             
-            if len(faces) == 0:
+            if face_tensor is None:
                 logger.warning("No face detected in image")
                 return None
             
-            # Use the largest/most prominent face
-            if len(faces) > 1:
-                logger.info(f"Multiple faces detected ({len(faces)}), using largest")
-                faces = sorted(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)
+            # Convert face tensor to numpy array for DeepFace
+            # MTCNN returns [C, H, W] tensor, convert to [H, W, C] BGR image
+            face_img = face_tensor.permute(1, 2, 0).cpu().numpy()
             
-            embedding = faces[0].embedding
+            # Convert from [-1, 1] to [0, 255] and RGB to BGR
+            face_img = ((face_img + 1) * 127.5).astype(np.uint8)
+            face_img = cv2.cvtColor(face_img, cv2.COLOR_RGB2BGR)
             
-            # Normalize for cosine similarity
+            # Generate embedding with DeepFace
+            # enforce_detection=False because we already detected face with MTCNN
+            from deepface import DeepFace
+            embedding_objs = DeepFace.represent(
+                img_path=face_img, 
+                model_name="ArcFace", 
+                enforce_detection=False, 
+                detector_backend="skip",
+                align=False  # Already cropped/aligned by MTCNN (roughly)
+            )
+            
+            if not embedding_objs:
+                logger.warning("No embedding returned by DeepFace")
+                return None
+                
+            embedding = np.array(embedding_objs[0]["embedding"])
+            
+            # Normalize embedding (DeepFace ArcFace usually returns normalized, but ensure it)
             embedding = embedding / np.linalg.norm(embedding)
             
-            logger.debug(f"Generated embedding with shape {embedding.shape}")
             return embedding.astype(np.float32)
             
         except Exception as e:
@@ -134,22 +163,10 @@ class FaceEmbeddingService:
     
     async def add_to_database(self, image_data: bytes, face_id: str, name: str, 
                               image_path: str) -> bool:
-        """
-        Add a face to the database.
-        
-        Args:
-            image_data: Raw image bytes
-            face_id: Unique identifier for the face
-            name: Name or label for the face
-            image_path: Path to the original image
-            
-        Returns:
-            True if successful, False otherwise
-        """
+        """Add a face to the database."""
         embedding = await self.get_embedding(image_data)
         
         if embedding is None:
-            logger.warning(f"Could not add face {face_id}: no face detected")
             return False
         
         # Add to FAISS index
@@ -168,16 +185,7 @@ class FaceEmbeddingService:
         return True
     
     async def search(self, image_data: bytes, top_k: int = 5) -> Tuple[List[FaceMatch], float]:
-        """
-        Search for similar faces in the database.
-        
-        Args:
-            image_data: Query image bytes
-            top_k: Number of top matches to return
-            
-        Returns:
-            Tuple of (list of FaceMatch objects, search time in seconds)
-        """
+        """Search for similar faces in the database."""
         start_time = time.time()
         
         # Get embedding for query image
@@ -197,10 +205,9 @@ class FaceEmbeddingService:
         
         distances, indices = self._faiss_index.search(query_2d, k)
         
-        # Convert to FaceMatch objects
         matches = []
         for i, (dist, idx) in enumerate(zip(distances[0], indices[0])):
-            if idx == -1:  # FAISS returns -1 for missing entries
+            if idx == -1:
                 continue
                 
             face_info = self._face_database.get(str(idx), {})
@@ -208,7 +215,7 @@ class FaceEmbeddingService:
             # Convert inner product to similarity percentage
             # For normalized vectors, inner product = cosine similarity
             similarity = float(dist)
-            similarity_percentage = max(0, min(100, similarity * 100))
+            similarity_percentage = max(0.0, min(100.0, similarity * 100))
             
             matches.append(FaceMatch(
                 id=face_info.get("id", f"unknown_{idx}"),
@@ -229,7 +236,6 @@ class FaceEmbeddingService:
             return
             
         logger.info(f"Saving FAISS index to {settings.faiss_index_path}")
-        
         faiss.write_index(self._faiss_index, str(settings.faiss_index_path))
         
         metadata_path = settings.faiss_index_path.with_suffix('.json')
@@ -239,31 +245,10 @@ class FaceEmbeddingService:
         logger.info("✅ FAISS index saved")
     
     def get_database_size(self) -> int:
-        """Get the number of faces in the database."""
         return self._faiss_index.ntotal if self._faiss_index else 0
-    
-    @staticmethod
-    def cosine_similarity(embedding1: np.ndarray, embedding2: np.ndarray) -> float:
-        """
-        Calculate cosine similarity between two embeddings.
-        
-        This is for demonstration/explainability purposes.
-        
-        Formula: cos(θ) = (A · B) / (||A|| × ||B||)
-        """
-        dot_product = np.dot(embedding1, embedding2)
-        norm1 = np.linalg.norm(embedding1)
-        norm2 = np.linalg.norm(embedding2)
-        
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        
-        similarity = dot_product / (norm1 * norm2)
-        return float(similarity)
-    
+
     def is_loaded(self) -> bool:
-        """Check if model is loaded."""
-        return self._face_analyzer is not None or True  # Always available with fallback
+        return self._model_loaded
 
 
 # Create singleton instance

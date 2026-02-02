@@ -29,7 +29,10 @@ transformers>=4.35.0
 diffusers>=0.24.0
 accelerate>=0.24.0
 
-# Face Recognition - Using onnxruntime (easier install on Windows)
+# Face Recognition - Using DeepFace (ArcFace)
+deepface>=0.0.80
+tf-keras>=2.15.0  # Required for DeepFace compatibility with newer TensorFlow
+facenet-pytorch>=2.5.3
 onnxruntime>=1.16.0
 
 # Vector Database
